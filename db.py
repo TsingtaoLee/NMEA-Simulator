@@ -61,6 +61,18 @@ def init_db():
             );
         """)
         conn.execute("INSERT OR IGNORE INTO ship_config (id, updated_at) VALUES (1, ?)", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
+
+        for col, col_type, default in [
+            ("satellites", "INTEGER", 8),
+            ("hdop", "REAL", 0.8),
+            ("altitude", "REAL", 34.7),
+            ("water_speed", "REAL", 0.0),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE ship_config ADD COLUMN {col} {col_type} DEFAULT {default}")
+            except Exception:
+                pass
+
         conn.commit()
         conn.close()
 
@@ -90,6 +102,10 @@ def load_ship_config():
         "pressure": row["pressure"],
         "ais_target_count": row["ais_target_count"],
         "mmsi": row["mmsi"],
+        "satellites": row["satellites"],
+        "hdop": row["hdop"],
+        "altitude": row["altitude"],
+        "water_speed": row["water_speed"],
         "running": bool(row["running"]),
     }
 
@@ -100,7 +116,8 @@ def save_ship_config(config):
         "water_depth", "depth_variation", "wind_direction", "wind_speed",
         "wind_dir_variation", "wind_speed_variation", "temperature",
         "humidity", "temp_variation", "humidity_variation", "pressure",
-        "ais_target_count", "mmsi",
+        "ais_target_count", "mmsi", "satellites", "hdop", "altitude",
+        "water_speed",
     ]
     values = [config.get(k) for k in keys]
     running = 1 if config.get("running") else 0
