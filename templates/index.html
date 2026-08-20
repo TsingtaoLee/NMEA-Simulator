@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NMEA 0183 船舶模拟系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="app" id="app">
+    <!-- Top Bar -->
+    <header class="top-bar">
+        <div class="top-bar-left">
+            <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 2v20M2 12h20"/>
+                <path d="M4.93 4.93l14.14 14.14"/>
+            </svg>
+            <span class="app-title">NMEA 0183 船舶模拟系统</span>
+        </div>
+        <div class="top-bar-right">
+            <div class="ship-status-badge" id="shipStatusBadge">
+                <span class="status-dot" id="simStatusDot"></span>
+                <span id="simStatusText">模拟未启动</span>
+            </div>
+            <div class="tab-switcher">
+                <button class="tab-btn active" data-tab="ship">船舶模拟</button>
+                <button class="tab-btn" data-tab="iface">接口管理</button>
+            </div>
+            <div class="clock" id="clock">--:--:--</div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Ship Simulation View -->
+        <section class="view view-ship active" id="viewShip">
+            <div class="ship-config-container">
+                <div class="ship-config-header">
+                    <h2 class="section-title">船舶模拟参数配置</h2>
+                    <div class="ship-runtime-grid" id="shipRuntimeGrid">
+                        <div class="runtime-card">
+                            <label>UTC 时间</label>
+                            <span class="runtime-value mono" id="rtUtc">—</span>
+                        </div>
+                        <div class="runtime-card">
+                            <label>当前纬度</label>
+                            <span class="runtime-value mono" id="rtLat">—</span>
+                        </div>
+                        <div class="runtime-card">
+                            <label>当前经度</label>
+                            <span class="runtime-value mono" id="rtLon">—</span>
+                        </div>
+                        <div class="runtime-card">
+                            <label>当前航向</label>
+                            <span class="runtime-value mono" id="rtHeading">—</span>
+                        </div>
+                        <div class="runtime-card">
+                            <label>当前航速</label>
+                            <span class="runtime-value mono" id="rtSpeed">—</span>
+                        </div>
+                        <div class="runtime-card">
+                            <label>水深</label>
+                            <span class="runtime-value mono" id="rtDepth">—</span>
+                        </div>
+                        <div class="runtime-card">
+                            <label>风速</label>
+                            <span class="runtime-value mono" id="rtWind">—</span>
+                        </div>
+                        <div class="runtime-card">
+                            <label>温湿度</label>
+                            <span class="runtime-value mono" id="rtTempHum">—</span>
+                        </div>
+                    </div>
+                </div>
+
+                <form class="ship-config-form" id="shipConfigForm">
+                    <div class="form-section">
+                        <div class="form-section-title"><span class="dot"></span>位置设定</div>
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label>起始纬度 (°)</label>
+                                <input type="number" step="0.000001" id="cfg_start_latitude" value="31.2304">
+                            </div>
+                            <div class="form-field">
+                                <label>起始经度 (°)</label>
+                                <input type="number" step="0.000001" id="cfg_start_longitude" value="121.4737">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><span class="dot"></span>导航参数</div>
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label>航向 (°)</label>
+                                <input type="number" step="0.1" min="0" max="360" id="cfg_heading" value="45.0">
+                            </div>
+                            <div class="form-field">
+                                <label>航速 (kn)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_speed" value="12.0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><span class="dot"></span>水深参数</div>
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label>基准水深 (m)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_water_depth" value="50.0">
+                            </div>
+                            <div class="form-field">
+                                <label>随机变化量 (m)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_depth_variation" value="5.0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><span class="dot"></span>风速风向</div>
+                        <div class="form-grid form-grid-4">
+                            <div class="form-field">
+                                <label>风向 (°)</label>
+                                <input type="number" step="0.1" min="0" max="360" id="cfg_wind_direction" value="180.0">
+                            </div>
+                            <div class="form-field">
+                                <label>风速 (kn)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_wind_speed" value="10.0">
+                            </div>
+                            <div class="form-field">
+                                <label>风向变化量 (°)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_wind_dir_variation" value="30.0">
+                            </div>
+                            <div class="form-field">
+                                <label>风速变化量 (kn)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_wind_speed_variation" value="2.0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><span class="dot"></span>温湿度</div>
+                        <div class="form-grid form-grid-4">
+                            <div class="form-field">
+                                <label>温度 (°C)</label>
+                                <input type="number" step="0.1" id="cfg_temperature" value="22.0">
+                            </div>
+                            <div class="form-field">
+                                <label>湿度 (%)</label>
+                                <input type="number" step="0.1" min="0" max="100" id="cfg_humidity" value="65.0">
+                            </div>
+                            <div class="form-field">
+                                <label>温度变化量 (°C)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_temp_variation" value="2.0">
+                            </div>
+                            <div class="form-field">
+                                <label>湿度变化量 (%)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_humidity_variation" value="5.0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><span class="dot"></span>气象</div>
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label>气压 (hPa)</label>
+                                <input type="number" step="0.1" id="cfg_pressure" value="1013.0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><span class="dot"></span>AIS</div>
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label>AIS 目标数量</label>
+                                <input type="number" step="1" min="0" max="50" id="cfg_ais_target_count" value="5">
+                            </div>
+                            <div class="form-field">
+                                <label>本船 MMSI</label>
+                                <input type="number" step="1" id="cfg_mmsi" value="200123456">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ship-config-actions">
+                        <button type="button" class="btn btn-primary" id="btnStartSim">开始模拟</button>
+                        <button type="button" class="btn btn-secondary" id="btnStopSim" disabled>停止模拟</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- Interface Management View -->
+        <section class="view view-iface" id="viewIface">
+            <div class="iface-layout" id="ifaceLayout">
+                <!-- Sidebar: Interface List -->
+                <aside class="sidebar" id="sidebar">
+                    <div class="sidebar-header">
+                        <h2 class="section-title">接口列表</h2>
+                        <div class="sidebar-actions">
+                            <button class="icon-btn" id="btnCollapse" title="收起面板">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M15 18l-6-6 6-6"/>
+                                </svg>
+                            </button>
+                            <button class="btn btn-new" id="btnNewIface">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <path d="M12 5v14M5 12h14"/>
+                                </svg>
+                                新建
+                            </button>
+                        </div>
+                    </div>
+                    <div class="interface-list" id="interfaceList">
+                        <div class="interface-empty" id="ifaceEmpty">
+                            <svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                                <rect x="6" y="10" width="36" height="28" rx="4"/>
+                                <path d="M14 20h20M14 28h12"/>
+                            </svg>
+                            <p>暂无接口，点击「新建」创建</p>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Content Area -->
+                <main class="content-area" id="contentArea">
+                    <!-- Config Panel -->
+                    <div class="config-panel" id="configPanel">
+                        <!-- Empty State -->
+                        <div class="view-state view-empty active" id="viewEmpty">
+                            <div class="empty-illustration">
+                                <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2">
+                                    <circle cx="32" cy="32" r="28"/>
+                                    <path d="M32 18v28M18 32h28"/>
+                                </svg>
+                                <p>请选择左侧接口查看详情</p>
+                                <span class="empty-hint">或点击「新建」创建接口</span>
+                            </div>
+                        </div>
+
+                        <!-- Detail View (populated by JS) -->
+                        <div class="view-state view-detail" id="viewDetail"></div>
+
+                        <!-- Form View (populated by JS) -->
+                        <div class="view-state view-form" id="viewForm"></div>
+                    </div>
+
+                    <!-- Log Panel -->
+                    <div class="log-panel" id="logPanel">
+                        <div class="log-header">
+                            <div class="log-title">
+                                <h3>接口数据日志</h3>
+                                <span class="log-iface-tag" id="logIfaceTag" style="display:none;"></span>
+                            </div>
+                            <div class="log-controls">
+                                <div class="log-filters" id="logFilters">
+                                    <button class="filter-btn active" data-level="all">全部</button>
+                                    <button class="filter-btn" data-level="data">数据</button>
+                                    <button class="filter-btn" data-level="info">信息</button>
+                                    <button class="filter-btn" data-level="warn">警告</button>
+                                    <button class="filter-btn" data-level="error">错误</button>
+                                </div>
+                                <button class="btn-all-iface" id="btnAllIface" style="display:none;">全部接口</button>
+                                <span class="log-count" id="logCount">0 条</span>
+                                <button class="icon-btn" id="btnClearLog" title="清空日志">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="log-content" id="logContent"></div>
+                    </div>
+                </main>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
