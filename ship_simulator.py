@@ -22,6 +22,10 @@ DEFAULT_CONFIG = {
     "pressure": 1013.0,
     "ais_target_count": 5,
     "mmsi": 200123456,
+    "satellites": 8,
+    "hdop": 0.8,
+    "altitude": 34.7,
+    "water_speed": 0.0,
 }
 
 
@@ -59,6 +63,10 @@ class ShipState:
         self.humidity = self._config["humidity"]
         self.pressure = self._config.get("pressure", 1013.0)
         self.mmsi = self._config.get("mmsi", 200123456)
+        self.satellites = self._config.get("satellites", 8)
+        self.hdop = self._config.get("hdop", 0.8)
+        self.altitude = self._config.get("altitude", 34.7)
+        self.water_speed = self._config.get("water_speed", 0.0) or self._config["speed"]
         self._regen_targets()
 
     def get(self, key, default=None):
@@ -71,20 +79,21 @@ class ShipState:
         self.ais_targets = []
         for i in range(count):
             ang = random.uniform(0, 360)
-            dist_nm = random.uniform(2, 15)
+            dist_nm = random.uniform(0.5, 8)
             dlat = dist_nm * math.cos(math.radians(ang)) / 60
             dlon = dist_nm * math.sin(math.radians(ang)) / (60 * math.cos(math.radians(self.latitude)))
             tgt_lat = self.latitude + dlat
             tgt_lon = self.longitude + dlon
-            mmsi = random.randint(200000000, 775999999)
-            tgt_heading = random.uniform(0, 360)
-            tgt_speed = random.uniform(5, 18)
+            mmsi = random.randint(201000000, 775999999)
+            base_heading = self.heading + random.uniform(-60, 60)
+            tgt_heading = base_heading % 360
+            tgt_speed = max(1.0, self.speed + random.uniform(-5, 5))
             self.ais_targets.append({
                 "mmsi": mmsi,
                 "latitude": tgt_lat,
                 "longitude": tgt_lon,
                 "heading": tgt_heading,
-                "cog": tgt_heading + random.uniform(-10, 10),
+                "cog": (tgt_heading + random.uniform(-5, 5)) % 360,
                 "speed": tgt_speed,
             })
 

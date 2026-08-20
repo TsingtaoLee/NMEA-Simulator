@@ -119,7 +119,7 @@ class NMEAGenerator:
         bits += format(int(round(heading)) & 0x1FF, "09b")
         bits += format(utc_second & 0x3F, "06b")
         bits += "0000"
-        bits += "00"
+        bits += "0"
         bits += "0"
         bits += format(0, "019b")
         return _encode_ais_payload(bits)
@@ -217,9 +217,10 @@ class NMEAGenerator:
 
     def _gen_mda(self, s):
         p_in = s.get("pressure", 1013.0) * 0.02953
+        p_bar = s.get("pressure", 1013.0) / 1000.0
         dew = self._dew_point(s.temperature, s.humidity)
         body = (
-            f"WIMDA,{p_in:.2f},I,{s.get('pressure', 1013.0):.3f},B,"
+            f"WIMDA,{p_in:.2f},I,{p_bar:.3f},B,"
             f"{s.temperature:.1f},C,,C,{s.humidity:.1f},,{dew:.1f},C,"
             f"{s.wind_direction:.0f},T,,M,{s.wind_speed:.1f},N,{s.wind_speed * 0.5144:.1f},M"
         )
@@ -265,12 +266,10 @@ class NMEAGenerator:
             tgt["latitude"], tgt["longitude"], tgt["speed"], tgt_cog
         )
         num = (self._ttm_index % 99) + 1
-        t = s.utc_time
-        hhmmss = t.strftime("%H%M%S") + f".{t.microsecond // 10000:02d}"
         body = (
             f"RATTM,{num:02d},{dist:.1f},{bearing:.1f},T,"
             f"{tgt['speed']:.1f},{tgt_cog:.1f},T,"
-            f"{cpa:.1f},{tcpa:.1f},N,N,N,N,T,,{hhmmss},A,R"
+            f"{cpa:.1f},{tcpa:.1f},N,,T,A,R,,A,R"
         )
         return build_nmea(body)
 
@@ -279,14 +278,13 @@ class NMEAGenerator:
         if not targets:
             return None
         tgt = targets[self._ttm_index % len(targets)]
-        bearing = _calc_bearing(s.latitude, s.longitude, tgt["latitude"], tgt["longitude"])
         dist = _calc_distance_nm(s.latitude, s.longitude, tgt["latitude"], tgt["longitude"])
         lat_str, lat_h = _format_lat(tgt["latitude"])
         lon_str, lon_h = _format_lon(tgt["longitude"])
         num = (self._ttm_index % 99) + 1
         t = s.utc_time
         hhmmss = t.strftime("%H%M%S") + f".{t.microsecond // 10000:02d}"
-        body = f"RATLL,{num:02d},{lat_str},{lat_h},{lon_str},{lon_h},{dist:.1f},N,{hhmmss},T,R"
+        body = f"RATLL,{num:02d},{lat_str},{lat_h},{lon_str},{lon_h},{dist:.1f},N,,{hhmmss},T,R"
         return build_nmea(body)
 
     @staticmethod

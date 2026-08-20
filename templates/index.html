@@ -175,6 +175,28 @@
                     </div>
 
                     <div class="form-section">
+                        <div class="form-section-title"><span class="dot"></span>GPS辅助</div>
+                        <div class="form-grid form-grid-3">
+                            <div class="form-field">
+                                <label>GGA 卫星数</label>
+                                <input type="number" step="1" min="0" max="20" id="cfg_satellites" value="8">
+                            </div>
+                            <div class="form-field">
+                                <label>GGA HDOP</label>
+                                <input type="number" step="0.1" min="0" id="cfg_hdop" value="0.8">
+                            </div>
+                            <div class="form-field">
+                                <label>GGA 海拔 (m)</label>
+                                <input type="number" step="0.1" id="cfg_altitude" value="34.7">
+                            </div>
+                            <div class="form-field">
+                                <label>VBW 对水速度 (kn)</label>
+                                <input type="number" step="0.1" min="0" id="cfg_water_speed" value="0.0" placeholder="留空则同航速">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
                         <div class="form-section-title"><span class="dot"></span>AIS</div>
                         <div class="form-grid">
                             <div class="form-field">
