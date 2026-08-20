@@ -183,17 +183,18 @@ class Interface:
         state = self.ship_sim.state
         state.utc_time = datetime.now(timezone.utc)
         for fmt in self.formats:
-            sentence = self.nmea_gen.generate(fmt, state)
-            if not sentence:
+            sentences = self.nmea_gen.generate(fmt, state)
+            if not sentences:
                 continue
-            raw = sentence.strip()
-            if self.protocol == "TCP":
-                self._tcp_broadcast(raw)
-            else:
-                self._udp_send(raw)
-            with self._stats_lock:
-                self.data_count += 1
-            self._log("data", raw, nmea_raw=raw)
+            for sentence in sentences:
+                raw = sentence.strip()
+                if self.protocol == "TCP":
+                    self._tcp_broadcast(raw)
+                else:
+                    self._udp_send(raw)
+                with self._stats_lock:
+                    self.data_count += 1
+                self._log("data", raw, nmea_raw=raw)
 
     def _tcp_broadcast(self, data):
         payload = (data + "\r\n").encode("ascii")

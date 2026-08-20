@@ -67,6 +67,11 @@ def init_db():
             ("hdop", "REAL", 0.8),
             ("altitude", "REAL", 34.7),
             ("water_speed", "REAL", 0.0),
+            ("ais_fragment_enabled", "INTEGER", 0),
+            ("ais_fragment_mode", "INTEGER", 0),
+            ("ais_fragment_type", "INTEGER", 5),
+            ("ais_fragment_count", "INTEGER", 0),
+            ("aton_target_count", "INTEGER", 2),
         ]:
             try:
                 conn.execute(f"ALTER TABLE ship_config ADD COLUMN {col} {col_type} DEFAULT {default}")
@@ -106,6 +111,11 @@ def load_ship_config():
         "hdop": row["hdop"],
         "altitude": row["altitude"],
         "water_speed": row["water_speed"],
+        "ais_fragment_enabled": int(row["ais_fragment_enabled"]),
+        "ais_fragment_mode": int(row["ais_fragment_mode"]),
+        "ais_fragment_type": int(row["ais_fragment_type"]),
+        "ais_fragment_count": int(row["ais_fragment_count"]),
+        "aton_target_count": int(row["aton_target_count"]),
         "running": bool(row["running"]),
     }
 
@@ -117,7 +127,9 @@ def save_ship_config(config):
         "wind_dir_variation", "wind_speed_variation", "temperature",
         "humidity", "temp_variation", "humidity_variation", "pressure",
         "ais_target_count", "mmsi", "satellites", "hdop", "altitude",
-        "water_speed",
+        "water_speed", "ais_fragment_enabled",
+        "ais_fragment_mode", "ais_fragment_type", "ais_fragment_count",
+        "aton_target_count",
     ]
     values = [config.get(k) for k in keys]
     running = 1 if config.get("running") else 0

@@ -26,6 +26,11 @@ DEFAULT_CONFIG = {
     "hdop": 0.8,
     "altitude": 34.7,
     "water_speed": 0.0,
+    "ais_fragment_enabled": 0,
+    "ais_fragment_mode": 0,
+    "ais_fragment_type": 5,
+    "ais_fragment_count": 0,
+    "aton_target_count": 2,
 }
 
 
@@ -45,6 +50,7 @@ class ShipState:
         self.mmsi = DEFAULT_CONFIG["mmsi"]
         self._extra = {}
         self.ais_targets = []
+        self.aton_targets = []
         self.apply_config(config or {})
 
     def apply_config(self, cfg, reset_position=False):
@@ -67,6 +73,11 @@ class ShipState:
         self.hdop = self._config.get("hdop", 0.8)
         self.altitude = self._config.get("altitude", 34.7)
         self.water_speed = self._config.get("water_speed", 0.0) or self._config["speed"]
+        self.ais_fragment_enabled = self._config.get("ais_fragment_enabled", 0)
+        self.ais_fragment_mode = self._config.get("ais_fragment_mode", 0)
+        self.ais_fragment_type = self._config.get("ais_fragment_type", 5)
+        self.ais_fragment_count = self._config.get("ais_fragment_count", 0)
+        self.aton_target_count = self._config.get("aton_target_count", 2)
         self._regen_targets()
 
     def get(self, key, default=None):
@@ -95,6 +106,20 @@ class ShipState:
                 "heading": tgt_heading,
                 "cog": (tgt_heading + random.uniform(-5, 5)) % 360,
                 "speed": tgt_speed,
+            })
+        aton_count = self._config.get("aton_target_count", 2)
+        self.aton_targets = []
+        for i in range(aton_count):
+            ang = random.uniform(0, 360)
+            dist_nm = random.uniform(0.5, 5.0)
+            dlat = dist_nm * math.cos(math.radians(ang)) / 60
+            dlon = dist_nm * math.sin(math.radians(ang)) / (60 * math.cos(math.radians(self.latitude)))
+            self.aton_targets.append({
+                "mmsi": 990000000 + random.randint(10000, 99999),
+                "name": f"ATON-{i+1:02d}",
+                "latitude": self.latitude + dlat,
+                "longitude": self.longitude + dlon,
+                "aton_type": random.randint(1, 7),
             })
 
     def update(self, dt):
@@ -158,6 +183,7 @@ class ShipState:
             "humidity": round(self.humidity, 1),
             "pressure": round(self.pressure, 1),
             "ais_target_count": len(self.ais_targets),
+            "aton_target_count": len(self.aton_targets),
             "mmsi": self.mmsi,
             "config": self._config,
         }

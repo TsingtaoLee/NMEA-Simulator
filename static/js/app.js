@@ -210,6 +210,11 @@ function collectShipConfig() {
         hdop: parseFloat($('cfg_hdop').value),
         altitude: parseFloat($('cfg_altitude').value),
         water_speed: parseFloat($('cfg_water_speed').value),
+        ais_fragment_enabled: 0,
+        ais_fragment_mode: parseInt($('cfg_ais_fragment_mode').value),
+        ais_fragment_type: parseInt($('cfg_ais_fragment_type').value),
+        ais_fragment_count: parseInt($('cfg_ais_fragment_count').value),
+        aton_target_count: parseInt($('cfg_aton_target_count').value),
     };
 }
 
@@ -756,7 +761,9 @@ async function init() {
                 'water_depth', 'depth_variation', 'wind_direction', 'wind_speed',
                 'wind_dir_variation', 'wind_speed_variation', 'temperature', 'humidity',
                 'temp_variation', 'humidity_variation', 'pressure', 'ais_target_count', 'mmsi',
-                'satellites', 'hdop', 'altitude', 'water_speed'];
+                'satellites', 'hdop', 'altitude', 'water_speed',
+                'ais_fragment_mode', 'ais_fragment_type', 'ais_fragment_count',
+                'aton_target_count'];
             fields.forEach(f => {
                 const el = $('cfg_' + f);
                 if (el && saved[f] != null) el.value = saved[f];

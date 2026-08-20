@@ -200,12 +200,45 @@
                         <div class="form-section-title"><span class="dot"></span>AIS</div>
                         <div class="form-grid">
                             <div class="form-field">
-                                <label>AIS 目标数量</label>
+                                <label>AIS 船舶目标数量</label>
                                 <input type="number" step="1" min="0" max="50" id="cfg_ais_target_count" value="5">
+                            </div>
+                            <div class="form-field">
+                                <label>航标目标数量</label>
+                                <input type="number" step="1" min="0" max="20" id="cfg_aton_target_count" value="2">
                             </div>
                             <div class="form-field">
                                 <label>本船 MMSI</label>
                                 <input type="number" step="1" id="cfg_mmsi" value="200123456">
+                            </div>
+                            <div class="form-field">
+                                <label>报文分片模式</label>
+                                <select id="cfg_ais_fragment_mode">
+                                    <option value="0">关闭</option>
+                                    <option value="1">混合模式</option>
+                                    <option value="2">纯分片模式</option>
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label>报文类型</label>
+                                <select id="cfg_ais_fragment_type">
+                                    <option value="5">Type 5 (静态数据)</option>
+                                    <option value="6">Type 6 (寻址二进制)</option>
+                                    <option value="8">Type 8 (广播二进制)</option>
+                                    <option value="12">Type 12 (寻址安全报文)</option>
+                                    <option value="14">Type 14 (安全广播)</option>
+                                    <option value="21">Type 21 (航标报告)</option>
+                                    <option value="24">Type 24 (静态数据报告)</option>
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label>分片数</label>
+                                <select id="cfg_ais_fragment_count">
+                                    <option value="0">自动</option>
+                                    <option value="2">2 片</option>
+                                    <option value="3">3 片</option>
+                                    <option value="4">4 片</option>
+                                </select>
                             </div>
                         </div>
                     </div>
