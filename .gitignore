@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.egg-info/
 dist/
+dist2/
 build/
 *.spec.bak
 
@@ -24,3 +25,7 @@ Thumbs.db
 *.log
 stdout.txt
 stderr.txt
+
+# Test data
+nmea_output.txt
+quick_check.py

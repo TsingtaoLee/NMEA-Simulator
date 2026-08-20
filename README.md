@@ -14,6 +14,8 @@
 - 温湿度及变化量
 - 气压参数
 - AIS 目标数量、本船 MMSI
+- GGA 卫星数、HDOP、海拔高度
+- VBW 对水速度
 - 实时位置推算（基于航向航速）
 - 配置持久化（SQLite），刷新页面不丢失
 
@@ -61,10 +63,13 @@ nmea-simulator/
 ├── nmea_generator.py       # NMEA 0183 句子生成器 (15种)
 ├── ship_simulator.py       # 船舶模拟引擎
 ├── interface_manager.py    # TCP/UDP 接口管理器
+├── analyze_data.py         # 数据验证脚本（校验和/格式/一致性）
+├── collect_data.py         # 数据采集脚本（TCP 连接采集）
 ├── requirements.txt        # Python 依赖
 ├── build.spec              # PyInstaller 打包配置
 ├── build.bat               # Windows 一键打包脚本
 ├── Dockerfile              # Docker 镜像构建文件
+├── docker-compose.yml      # Docker Compose 编排文件
 ├── templates/
 │   └── index.html          # 前端页面
 ├── static/
@@ -144,7 +149,7 @@ python -m PyInstaller build.spec --noconfirm
 | 代码 | 说明 | Talker |
 |------|------|--------|
 | RMC | 推荐最小导航信息（位置/速度/时间） | GP |
-| GGA | GPS 定位数据 | GP |
+| GGA | GPS 定位数据（卫星数/HDOP/海拔） | GP |
 | GLL | 地理位置 | GP |
 | ZDA | 时间与日期 | GP |
 | VTG | 对地航速航向 | GP |
@@ -152,7 +157,7 @@ python -m PyInstaller build.spec --noconfirm
 | MWV | 风速风向 | WI |
 | DPT | 水深 | SD |
 | DBT | 换能器以下水深 | SD |
-| MDA | 气象综合数据 | WI |
+| MDA | 气象综合数据（气压/温湿度/风向风速） | WI |
 | VDM | AIS 他船信息 | AI |
 | VDO | AIS 本船信息 | AI |
 | HDT | 真航向 | HE |
@@ -171,11 +176,70 @@ python -m PyInstaller build.spec --noconfirm
 | depth_variation | 5.0 | 水深随机变化量 (m) |
 | wind_direction | 180.0 | 风向 (°) |
 | wind_speed | 10.0 | 风速 (kn) |
+| wind_dir_variation | 30.0 | 风向变化量 (°) |
+| wind_speed_variation | 2.0 | 风速变化量 (kn) |
 | temperature | 22.0 | 温度 (°C) |
 | humidity | 65.0 | 湿度 (%) |
+| temp_variation | 2.0 | 温度变化量 (°C) |
+| humidity_variation | 5.0 | 湿度变化量 (%) |
 | pressure | 1013.0 | 气压 (hPa) |
 | ais_target_count | 5 | AIS 目标数量 |
 | mmsi | 200123456 | 本船 MMSI |
+| satellites | 10 | GGA 卫星数 |
+| hdop | 0.8 | GGA 水平精度因子 |
+| altitude | 35.0 | GGA 海拔高度 (m) |
+| water_speed | 0.0 | VBW 对水速度 (kn)，0 时等于对地速度 |
+
+## NMEA 数据协议规范
+
+### AIS VDM/VDO
+
+- 消息类型：Type 1（船位报告）
+- 载荷长度：168 bits（28 字符），符合 ITU-R M.1371
+- MMSI 编码：30 位掩码（0x3FFFFFFF），本船 MMSI 200123456
+- 目标 MMSI：≥ 201000000，与本船距离 0.5-8 nm
+- 目标航向：基于本船航向 ±60°
+- 目标航速：接近本船速度（±5 kn）
+
+### 雷达 TTM/TLL
+
+- TTM 和 TLL 使用独立索引，目标编号 1-N（N 为 AIS 目标数量）
+- 同一编号目标在 TTM 和 TLL 中距离一致（偏差 0%）
+- TTM 包含：目标距离、方位、航速、航向、CPA/TCPA
+- TLL 包含：目标经纬度、距离、UTC 时间
+
+### 跨字段一致性
+
+不同字段输出相同物理量时保持一致或偏差 < 5%：
+
+| 物理量 | 对比字段 | 一致性 |
+|--------|----------|--------|
+| 位置 | RMC / GGA / GLL | 完全一致 |
+| 航向 | RMC COG / VTG COG / HDT | 完全一致 |
+| 速度 | RMC SOG / VTG SOG / VBW | 完全一致 |
+| 水深 | DPT / DBT | 完全一致 |
+| 风向风速 | MWV / MDA | 偏差 < 0.5° |
+
+## 数据验证
+
+项目内置数据验证工具，可采集并验证 NMEA 输出数据：
+
+```bash
+# 1. 启动服务
+python app.py
+
+# 2. 创建接口后，采集 1 分钟数据
+python collect_data.py
+
+# 3. 验证数据（校验和/格式/跨字段一致性/目标一致性）
+python analyze_data.py
+```
+
+验证内容包括：
+- 校验和验证（XOR 校验，100% 通过率）
+- 15 种 NMEA 语句格式与内容检查
+- 跨字段数据一致性（位置/航向/速度/水深/风向）
+- VDM/TTM/TLL 目标数据一致性（编号、距离、MMSI）
 
 ## Docker 部署
 
@@ -199,6 +263,8 @@ services:
     container_name: NMEA_Simulator
     ports:
       - "8972:8972"
+    environment:
+      - NMEA_DB_PATH=/data/nmea_sim.db
     volumes:
       - ./volumes/nmea_simulator/data:/data
     restart: unless-stopped
@@ -214,7 +280,7 @@ services:
 | ship_config | 船舶模拟配置（所有参数 + 运行状态） |
 | interfaces | 接口配置（名称、协议、IP、端口、数据格式） |
 
-数据库文件位于运行目录（Python 源码目录或 EXE 同目录），删除后重启会自动重建。
+数据库文件位于运行目录（Python 源码目录或 EXE 同目录），删除后重启会自动重建。Docker 环境下通过 `NMEA_DB_PATH` 环境变量指定路径。
 
 ## 许可证
 

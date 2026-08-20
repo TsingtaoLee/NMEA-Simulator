@@ -101,12 +101,13 @@ class NMEAGenerator:
     def __init__(self):
         self._vdm_index = 0
         self._ttm_index = 0
+        self._tll_index = 0
 
     def _ais_type1_payload(self, mmsi, lat, lon, sog, cog, heading, utc_second):
         bits = ""
         bits += format(1, "06b")
         bits += "00"
-        bits += format(int(mmsi) & 0x3FFFFFF, "030b")
+        bits += format(int(mmsi) & 0x3FFFFFFF, "030b")
         bits += format(0, "04b")
         bits += format(_from_signed(-128, 8) & 0xFF, "08b")
         bits += format(int(round(sog * 10)) & 0x3FF, "010b")
@@ -256,8 +257,9 @@ class NMEAGenerator:
         targets = s.get("ais_targets", [])
         if not targets:
             return None
-        tgt = targets[self._ttm_index % len(targets)]
+        idx = self._ttm_index % len(targets)
         self._ttm_index += 1
+        tgt = targets[idx]
         bearing = _calc_bearing(s.latitude, s.longitude, tgt["latitude"], tgt["longitude"])
         dist = _calc_distance_nm(s.latitude, s.longitude, tgt["latitude"], tgt["longitude"])
         tgt_cog = tgt.get("cog", tgt.get("heading", 0))
@@ -265,7 +267,7 @@ class NMEAGenerator:
             s.latitude, s.longitude, s.speed, s.heading,
             tgt["latitude"], tgt["longitude"], tgt["speed"], tgt_cog
         )
-        num = (self._ttm_index % 99) + 1
+        num = idx + 1
         body = (
             f"RATTM,{num:02d},{dist:.1f},{bearing:.1f},T,"
             f"{tgt['speed']:.1f},{tgt_cog:.1f},T,"
@@ -277,11 +279,13 @@ class NMEAGenerator:
         targets = s.get("ais_targets", [])
         if not targets:
             return None
-        tgt = targets[self._ttm_index % len(targets)]
+        idx = self._tll_index % len(targets)
+        self._tll_index += 1
+        tgt = targets[idx]
         dist = _calc_distance_nm(s.latitude, s.longitude, tgt["latitude"], tgt["longitude"])
         lat_str, lat_h = _format_lat(tgt["latitude"])
         lon_str, lon_h = _format_lon(tgt["longitude"])
-        num = (self._ttm_index % 99) + 1
+        num = idx + 1
         t = s.utc_time
         hhmmss = t.strftime("%H%M%S") + f".{t.microsecond // 10000:02d}"
         body = f"RATLL,{num:02d},{lat_str},{lat_h},{lon_str},{lon_h},{dist:.1f},N,,{hhmmss},T,R"

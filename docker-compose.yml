@@ -1,0 +1,12 @@
+services:
+  nmea-simulator:
+    image: qdzhuning/nmea-simulator:latest
+    container_name: NMEA_Simulator
+    ports:
+      - "8972:8972"
+    environment:
+      - NMEA_DB_PATH=/data/nmea_sim.db
+    volumes:
+      - ./volumes/nmea_simulator/data:/data
+    restart: unless-stopped
+    network_mode: host

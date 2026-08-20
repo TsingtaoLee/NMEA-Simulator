@@ -10,7 +10,7 @@ if getattr(sys, 'frozen', False):
 else:
     _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-_DB_PATH = os.path.join(_APP_DIR, "nmea_sim.db")
+_DB_PATH = os.environ.get("NMEA_DB_PATH", os.path.join(_APP_DIR, "nmea_sim.db"))
 
 _lock = threading.Lock()
 
