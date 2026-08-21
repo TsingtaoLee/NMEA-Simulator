@@ -83,6 +83,30 @@ def _calc_distance_nm(lat1, lon1, lat2, lon2):
     return math.sqrt(dlat ** 2 + dlon ** 2)
 
 
+def _apply_pos_deviation(lat, lon, dev_meters):
+    """对经纬度添加以米为单位的随机位置偏差"""
+    if dev_meters <= 0:
+        return lat, lon
+    meters_to_deg_lat = 1.0 / 111120.0
+    cos_lat = max(math.cos(math.radians(lat)), 0.01)
+    meters_to_deg_lon = 1.0 / (111120.0 * cos_lat)
+    dlat = random.uniform(-dev_meters, dev_meters) * meters_to_deg_lat
+    dlon = random.uniform(-dev_meters, dev_meters) * meters_to_deg_lon
+    return lat + dlat, lon + dlon
+
+
+def _apply_val_deviation(val, dev):
+    """对标量值添加随机偏差"""
+    if dev <= 0:
+        return val
+    return val + random.uniform(-dev, dev)
+
+
+def _norm_heading(h):
+    """归一化航向到0-360"""
+    return h % 360
+
+
 def _calc_cpa_tcpa(o_lat, o_lon, o_sog, o_cog, t_lat, t_lon, t_sog, t_cog):
     rx = (t_lon - o_lon) * 60 * 1852 * math.cos(math.radians(o_lat))
     ry = (t_lat - o_lat) * 60 * 1852
@@ -101,7 +125,9 @@ def _calc_cpa_tcpa(o_lat, o_lon, o_sog, o_cog, t_lat, t_lon, t_sog, t_cog):
 class NMEAGenerator:
     def __init__(self):
         self._vdm_index = 0
-        self._aton_index = 0
+        self._vdm_ais_msg_idx = 0
+        self._vdm_aton_msg_idx = 0
+        self._vdo_type_index = 0
         self._ais_seq_id = 0
         self._ttm_index = 0
         self._tll_index = 0
@@ -112,9 +138,7 @@ class NMEAGenerator:
         text = text.upper().ljust(max_chars)[:max_chars]
         bits = ""
         for ch in text:
-            val = ord(ch) - 32
-            if val < 0 or val > 63:
-                val = 0
+            val = (ord(ch) - 64) & 0x3F
             bits += format(val, "06b")
         return bits
 
@@ -243,9 +267,7 @@ class NMEAGenerator:
     def _encode_ais_text_raw(text):
         bits = ""
         for ch in text.upper():
-            val = ord(ch) - 32
-            if val < 0 or val > 63:
-                val = 0
+            val = (ord(ch) - 64) & 0x3F
             bits += format(val, "06b")
         return bits
 
@@ -315,6 +337,57 @@ class NMEAGenerator:
         bits += "0"
         bits += "0"
         bits += format(0, "019b")
+        return _encode_ais_payload(bits)
+
+    def _ais_type4_payload(self, mmsi, lat, lon, utc_second, year, month, day, hour, minute):
+        bits = ""
+        bits += format(4, "06b")
+        bits += "00"
+        bits += format(int(mmsi) & 0x3FFFFFFF, "030b")
+        bits += format(year & 0xFFF, "014b")
+        bits += format(month & 0xF, "04b")
+        bits += format(day & 0x1F, "05b")
+        bits += format(hour & 0x1F, "05b")
+        bits += format(minute & 0x3F, "06b")
+        bits += format(0, "02b")
+        bits += "0"
+        lon_raw = _from_signed(int(round(lon * 60 * 10000)), 28) & 0xFFFFFFF
+        bits += format(lon_raw, "028b")
+        lat_raw = _from_signed(int(round(lat * 60 * 10000)), 27) & 0x7FFFFFF
+        bits += format(lat_raw, "027b")
+        bits += format(0, "04b")
+        bits += "0"
+        bits += "0"
+        bits += format(utc_second & 0x3F, "06b")
+        bits += "0"
+        bits += "000"
+        bits += "0"
+        bits += format(0, "023b")
+        return _encode_ais_payload(bits)
+
+    def _ais_type9_payload(self, mmsi, lat, lon, alt, sog, cog, utc_second):
+        bits = ""
+        bits += format(9, "06b")
+        bits += "00"
+        bits += format(int(mmsi) & 0x3FFFFFFF, "030b")
+        bits += format(int(round(alt)), "012b")
+        bits += "0"
+        # SOG for aircraft is in knots, 1 unit = 1 knot
+        bits += format(int(round(sog)) & 0x3FF, "010b")
+        bits += "0"
+        bits += "0000"
+        bits += format(0, "03b")
+        lon_raw = _from_signed(int(round(lon * 60 * 10000)), 28) & 0xFFFFFFF
+        bits += format(lon_raw, "028b")
+        lat_raw = _from_signed(int(round(lat * 60 * 10000)), 27) & 0x7FFFFFF
+        bits += format(lat_raw, "027b")
+        bits += format(0, "04b")
+        bits += "0"
+        bits += format(int(round(cog * 10)) & 0xFFF, "012b")
+        bits += format(utc_second & 0x3F, "06b")
+        bits += "0"
+        bits += "0"
+        bits += format(0, "020b")
         return _encode_ais_payload(bits)
 
     def generate(self, fmt, state):
@@ -425,79 +498,77 @@ class NMEAGenerator:
         return build_nmea(body)
 
     def _gen_vdm(self, s):
-        mode = s.get("ais_fragment_mode", 0)
-        msg_type = s.get("ais_fragment_type", 5)
-        if mode == 0:
-            return self._gen_vdm_type1(s)
-        if mode == 1 and s.utc_time.second % 2 != 0:
-            return self._gen_vdm_type1(s)
-        return self._gen_vdm_fragmented(s, msg_type)
-
-    def _gen_vdm_type1(self, s):
-        targets = s.get("ais_targets", [])
-        if not targets:
+        sources = []
+        for tgt in s.get("ais_targets", []):
+            sources.append(("ais", tgt))
+        for aton in s.get("aton_targets", []):
+            sources.append(("aton", aton))
+        for spec in s.get("special_targets", []):
+            sources.append(("special", spec))
+        if not sources:
             return None
-        tgt = targets[self._vdm_index % len(targets)]
+        src_type, target = sources[self._vdm_index % len(sources)]
         self._vdm_index += 1
-        payload = self._ais_type1_payload(
-            tgt["mmsi"], tgt["latitude"], tgt["longitude"],
-            tgt["speed"], tgt.get("cog", tgt.get("heading", 0)),
-            tgt.get("heading", 0), s.utc_time.second
-        )
-        body = f"AIVDM,1,1,,B,{payload},0"
-        return build_nmea(body)
+        if src_type == "ais":
+            return self._gen_vdm_ais(target, s)
+        elif src_type == "aton":
+            return self._gen_vdm_aton(target, s)
+        elif src_type == "special":
+            return self._gen_vdm_special(target, s)
+        return None
 
-    def _gen_vdm_fragmented(self, s, msg_type):
-        mc = s.get("ais_fragment_count", 0)
-        if msg_type == 21:
-            atons = s.get("aton_targets", [])
-            if not atons:
-                return None
-            aton = atons[self._aton_index % len(atons)]
-            self._aton_index += 1
-            bits = self._ais_type21_payload(
-                aton["mmsi"], aton["name"], aton["latitude"],
-                aton["longitude"], aton.get("aton_type", 1), s.utc_time.second
-            )
-            fragments = self._split_ais_payload(bits, manual_count=mc)
-            return self._build_fragment_sentences("AIVDM", fragments, "B")
-        targets = s.get("ais_targets", [])
-        if not targets:
-            return None
-        tgt = targets[self._vdm_index % len(targets)]
-        self._vdm_index += 1
+    def _gen_vdm_ais(self, tgt, s):
+        msg_types = tgt.get("msg_types", [1])
+        msg_type = msg_types[self._vdm_ais_msg_idx % len(msg_types)]
+        self._vdm_ais_msg_idx += 1
+        fc = tgt.get("fragment_count", 1)
         own_mmsi = s.get("mmsi", 200000000)
+        if msg_type == 1:
+            ais_pos_dev = s.get("ais_pos_dev", 10.0)
+            ais_speed_dev = s.get("ais_speed_dev", 0.1)
+            ais_heading_dev = s.get("ais_heading_dev", 1.0)
+            lat, lon = _apply_pos_deviation(tgt["latitude"], tgt["longitude"], ais_pos_dev)
+            speed = max(0, _apply_val_deviation(tgt["speed"], ais_speed_dev))
+            true_heading = tgt.get("heading", 0)
+            cog = _norm_heading(_apply_val_deviation(true_heading, ais_heading_dev))
+            heading = _norm_heading(_apply_val_deviation(true_heading, ais_heading_dev))
+            payload = self._ais_type1_payload(
+                tgt["mmsi"], lat, lon,
+                speed, cog, heading, s.utc_time.second
+            )
+            return build_nmea(f"AIVDM,1,1,,B,{payload},0")
         if msg_type == 5:
             bits = self._ais_type5_payload(
-                tgt["mmsi"], "SIM TARGET", "TGT01",
-                random.randint(1000000, 9999999), 36,
-                s.get("water_depth", 50.0), "PORT SHANGHAI"
+                tgt["mmsi"], tgt.get("ship_name", ""), tgt.get("callsign", ""),
+                tgt.get("imo_number", 0), tgt.get("ship_type", 36),
+                tgt.get("draught", 5.0), tgt.get("destination", "")
             )
-            fragments = self._split_ais_payload(bits, manual_count=mc)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
             return self._build_fragment_sentences("AIVDM", fragments, "B")
         if msg_type == 6:
-            data = self._gen_data_bits(92, mc)
+            data = self._gen_data_bits(92, fc)
             bits = self._ais_type6_payload(tgt["mmsi"], own_mmsi, data)
-            fragments = self._split_ais_payload(bits, manual_count=mc)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
             return self._build_fragment_sentences("AIVDM", fragments, "B")
         if msg_type == 8:
-            data = self._gen_data_bits(60, mc)
+            data = self._gen_data_bits(60, fc)
             bits = self._ais_type8_payload(tgt["mmsi"], data)
-            fragments = self._split_ais_payload(bits, manual_count=mc)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
             return self._build_fragment_sentences("AIVDM", fragments, "B")
         if msg_type == 12:
-            text = self._gen_safety_text(72, mc)
+            text = self._gen_safety_text(72, fc)
             bits = self._ais_type12_payload(tgt["mmsi"], own_mmsi, text)
-            fragments = self._split_ais_payload(bits, manual_count=mc)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
             return self._build_fragment_sentences("AIVDM", fragments, "B")
         if msg_type == 14:
-            text = self._gen_safety_text(40, mc)
+            text = self._gen_safety_text(40, fc)
             bits = self._ais_type14_payload(tgt["mmsi"], text)
-            fragments = self._split_ais_payload(bits, manual_count=mc)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
             return self._build_fragment_sentences("AIVDM", fragments, "B")
         if msg_type == 24:
             parts = self._ais_type24_payloads(
-                tgt["mmsi"], "SIM TARGET", "TGT01", 36
+                tgt["mmsi"], tgt.get("ship_name", ""), tgt.get("callsign", ""),
+                tgt.get("ship_type", 36)
             )
             sentences = []
             for payload, fill in parts:
@@ -506,65 +577,153 @@ class NMEAGenerator:
             return sentences
         return None
 
+    def _gen_vdm_aton(self, aton, s):
+        msg_types = aton.get("msg_types", [21])
+        msg_type = msg_types[self._vdm_aton_msg_idx % len(msg_types)]
+        self._vdm_aton_msg_idx += 1
+        fc = aton.get("fragment_count", 1)
+        if msg_type == 21:
+            bits = self._ais_type21_payload(
+                aton["mmsi"], aton["name"], aton["latitude"],
+                aton["longitude"], aton.get("aton_type", 1), s.utc_time.second
+            )
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDM", fragments, "B")
+        if msg_type == 8:
+            data = self._gen_data_bits(60, fc)
+            bits = self._ais_type8_payload(aton["mmsi"], data)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDM", fragments, "B")
+        return None
+
+    def _gen_vdm_special(self, target, s):
+        tt = target.get("target_type", "")
+        fc = target.get("fragment_count", 1)
+        if tt == "basestation":
+            payload = self._ais_type4_payload(
+                target["mmsi"], target["latitude"], target["longitude"],
+                s.utc_time.second, s.utc_time.year, s.utc_time.month,
+                s.utc_time.day, s.utc_time.hour, s.utc_time.minute
+            )
+            return build_nmea(f"AIVDM,1,1,,B,{payload},0")
+        if tt == "aircraft":
+            payload = self._ais_type9_payload(
+                target["mmsi"], target["latitude"], target["longitude"],
+                target.get("altitude", 1000), target.get("speed", 150),
+                target.get("heading", 0), s.utc_time.second
+            )
+            return build_nmea(f"AIVDM,1,1,,B,{payload},0")
+        if tt == "weather":
+            data_bits = self._ais_weather_data_bits(target)
+            bits = self._ais_type8_payload(target["mmsi"], data_bits)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDM", fragments, "B")
+        if tt == "sart":
+            text = "SART ACTIVE"
+            bits = self._ais_type14_payload(target["mmsi"], text)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDM", fragments, "B")
+        if tt == "route":
+            data_bits = self._ais_route_data_bits(target, s)
+            bits = self._ais_type8_payload(target["mmsi"], data_bits)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDM", fragments, "B")
+        return None
+
+    def _ais_weather_data_bits(self, target):
+        bits = ""
+        bits += format(1, "010b")
+        bits += format(31, "06b")
+        bits += format(int(target.get("wind_speed", 15)) & 0x3FF, "010b")
+        bits += format(int(target.get("wind_direction", 180)) & 0x1FF, "09b")
+        bits += format(int(target.get("pressure", 1013) - 800) & 0x1FF, "09b")
+        bits += format(_from_signed(int(round(target.get("temperature", 22) * 10)), 8) & 0xFF, "08b")
+        bits += format(int(target.get("humidity", 65)) & 0x7F, "07b")
+        bits += format(int(target.get("visibility", 10)) & 0xFF, "08b")
+        return bits
+
+    def _ais_route_data_bits(self, target, s):
+        bits = ""
+        bits += format(1, "010b")
+        bits += format(29, "06b")
+        bits += format(1, "04b")
+        bits += format(5, "05b")
+        base_lat = s.latitude
+        base_lon = s.longitude
+        for i in range(5):
+            lat = base_lat + i * 0.05
+            lon = base_lon + i * 0.05
+            lat_raw = _from_signed(int(round(lat * 60 * 10000)), 27) & 0x7FFFFFF
+            lon_raw = _from_signed(int(round(lon * 60 * 10000)), 28) & 0xFFFFFFF
+            bits += format(lat_raw, "027b")
+            bits += format(lon_raw, "028b")
+        return bits
+
     def _gen_vdo(self, s):
-        mode = s.get("ais_fragment_mode", 0)
-        msg_type = s.get("ais_fragment_type", 5)
-        if mode == 0 or msg_type == 21:
-            return self._gen_vdo_type1(s)
-        if mode == 1 and s.utc_time.second % 2 != 0:
-            return self._gen_vdo_type1(s)
-        return self._gen_vdo_fragmented(s, msg_type)
-
-    def _gen_vdo_type1(self, s):
-        payload = self._ais_type1_payload(
-            s.get("mmsi", 200000000), s.latitude, s.longitude,
-            s.speed, s.heading, s.heading, s.utc_time.second
-        )
-        body = f"AIVDO,1,1,,A,{payload},0"
-        return build_nmea(body)
-
-    def _gen_vdo_fragmented(self, s, msg_type):
-        mc = s.get("ais_fragment_count", 0)
+        msg_types_str = str(s.get("vdo_msg_types", "1"))
+        msg_types = [int(x) for x in msg_types_str.split(",") if x.strip()]
+        if not msg_types:
+            msg_types = [1]
+        msg_type = msg_types[self._vdo_type_index % len(msg_types)]
+        self._vdo_type_index += 1
+        fc = s.get("vdo_fragment_count", 1)
         own_mmsi = s.get("mmsi", 200000000)
-        targets = s.get("ais_targets", [])
-        tgt_mmsi = targets[0]["mmsi"] if targets else 201000001
+        if msg_type == 1:
+            ais_pos_dev = s.get("ais_pos_dev", 10.0)
+            ais_speed_dev = s.get("ais_speed_dev", 0.1)
+            ais_heading_dev = s.get("ais_heading_dev", 1.0)
+            lat, lon = _apply_pos_deviation(s.latitude, s.longitude, ais_pos_dev)
+            speed = max(0, _apply_val_deviation(s.speed, ais_speed_dev))
+            cog = _norm_heading(_apply_val_deviation(s.heading, ais_heading_dev))
+            heading = _norm_heading(_apply_val_deviation(s.heading, ais_heading_dev))
+            payload = self._ais_type1_payload(
+                own_mmsi, lat, lon,
+                speed, cog, heading, s.utc_time.second
+            )
+            return build_nmea(f"AIVDO,1,1,,A,{payload},0")
         if msg_type == 5:
             bits = self._ais_type5_payload(
-                own_mmsi, "SIM OWN SHIP", "OWN01",
-                random.randint(1000000, 9999999), 36,
-                s.get("water_depth", 50.0), "DESTINATION PORT"
+                own_mmsi, s.get("ship_name", "SIM VESSEL"),
+                s.get("callsign", "SIMCALL"),
+                s.get("imo_number", 1234567),
+                s.get("ship_type_ais", 36),
+                s.get("draught", 5.0),
+                s.get("destination", "SHANGHAI")
             )
-            fragments = self._split_ais_payload(bits, manual_count=mc)
-            return self._build_fragment_sentences("AIVDO", fragments, "A")
-        if msg_type == 6:
-            data = self._gen_data_bits(92, mc)
-            bits = self._ais_type6_payload(own_mmsi, tgt_mmsi, data)
-            fragments = self._split_ais_payload(bits, manual_count=mc)
-            return self._build_fragment_sentences("AIVDO", fragments, "A")
-        if msg_type == 8:
-            data = self._gen_data_bits(60, mc)
-            bits = self._ais_type8_payload(own_mmsi, data)
-            fragments = self._split_ais_payload(bits, manual_count=mc)
-            return self._build_fragment_sentences("AIVDO", fragments, "A")
-        if msg_type == 12:
-            text = self._gen_safety_text(72, mc)
-            bits = self._ais_type12_payload(own_mmsi, tgt_mmsi, text)
-            fragments = self._split_ais_payload(bits, manual_count=mc)
-            return self._build_fragment_sentences("AIVDO", fragments, "A")
-        if msg_type == 14:
-            text = self._gen_safety_text(40, mc)
-            bits = self._ais_type14_payload(own_mmsi, text)
-            fragments = self._split_ais_payload(bits, manual_count=mc)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
             return self._build_fragment_sentences("AIVDO", fragments, "A")
         if msg_type == 24:
             parts = self._ais_type24_payloads(
-                own_mmsi, "SIM OWN SHIP", "OWN01", 36
+                own_mmsi, s.get("ship_name", "SIM VESSEL"),
+                s.get("callsign", "SIMCALL"), s.get("ship_type_ais", 36)
             )
             sentences = []
             for payload, fill in parts:
                 body = f"AIVDO,1,1,,A,{_encode_ais_payload(payload)},{fill}"
                 sentences.append(build_nmea(body))
             return sentences
+        if msg_type == 6:
+            tgt_mmsi = 201000001
+            data = self._gen_data_bits(92, fc)
+            bits = self._ais_type6_payload(own_mmsi, tgt_mmsi, data)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDO", fragments, "A")
+        if msg_type == 8:
+            data = self._gen_data_bits(60, fc)
+            bits = self._ais_type8_payload(own_mmsi, data)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDO", fragments, "A")
+        if msg_type == 12:
+            tgt_mmsi = 201000001
+            text = self._gen_safety_text(72, fc)
+            bits = self._ais_type12_payload(own_mmsi, tgt_mmsi, text)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDO", fragments, "A")
+        if msg_type == 14:
+            text = self._gen_safety_text(40, fc)
+            bits = self._ais_type14_payload(own_mmsi, text)
+            fragments = self._split_ais_payload(bits, manual_count=fc)
+            return self._build_fragment_sentences("AIVDO", fragments, "A")
         return None
 
     def _gen_hdt(self, s):
@@ -578,17 +737,25 @@ class NMEAGenerator:
         idx = self._ttm_index % len(targets)
         self._ttm_index += 1
         tgt = targets[idx]
-        bearing = _calc_bearing(s.latitude, s.longitude, tgt["latitude"], tgt["longitude"])
-        dist = _calc_distance_nm(s.latitude, s.longitude, tgt["latitude"], tgt["longitude"])
-        tgt_cog = tgt.get("cog", tgt.get("heading", 0))
+        radar_pos_dev = s.get("radar_pos_dev", 30.0)
+        radar_bearing_dev = s.get("radar_bearing_dev", 1.5)
+        radar_speed_dev = s.get("radar_speed_dev", 0.3)
+        radar_heading_dev = s.get("radar_heading_dev", 2.0)
+        r_lat, r_lon = _apply_pos_deviation(tgt["latitude"], tgt["longitude"], radar_pos_dev)
+        bearing = _calc_bearing(s.latitude, s.longitude, r_lat, r_lon)
+        bearing = _norm_heading(_apply_val_deviation(bearing, radar_bearing_dev))
+        dist = _calc_distance_nm(s.latitude, s.longitude, r_lat, r_lon)
+        r_speed = max(0, _apply_val_deviation(tgt["speed"], radar_speed_dev))
+        true_heading = tgt.get("heading", 0)
+        r_cog = _norm_heading(_apply_val_deviation(true_heading, radar_heading_dev))
         cpa, tcpa = _calc_cpa_tcpa(
             s.latitude, s.longitude, s.speed, s.heading,
-            tgt["latitude"], tgt["longitude"], tgt["speed"], tgt_cog
+            r_lat, r_lon, r_speed, r_cog
         )
         num = idx + 1
         body = (
             f"RATTM,{num:02d},{dist:.1f},{bearing:.1f},T,"
-            f"{tgt['speed']:.1f},{tgt_cog:.1f},T,"
+            f"{r_speed:.1f},{r_cog:.1f},T,"
             f"{cpa:.1f},{tcpa:.1f},N,,T,A,R,,A,R"
         )
         return build_nmea(body)
@@ -600,9 +767,11 @@ class NMEAGenerator:
         idx = self._tll_index % len(targets)
         self._tll_index += 1
         tgt = targets[idx]
-        dist = _calc_distance_nm(s.latitude, s.longitude, tgt["latitude"], tgt["longitude"])
-        lat_str, lat_h = _format_lat(tgt["latitude"])
-        lon_str, lon_h = _format_lon(tgt["longitude"])
+        radar_pos_dev = s.get("radar_pos_dev", 30.0)
+        r_lat, r_lon = _apply_pos_deviation(tgt["latitude"], tgt["longitude"], radar_pos_dev)
+        dist = _calc_distance_nm(s.latitude, s.longitude, r_lat, r_lon)
+        lat_str, lat_h = _format_lat(r_lat)
+        lon_str, lon_h = _format_lon(r_lon)
         num = idx + 1
         t = s.utc_time
         hhmmss = t.strftime("%H%M%S") + f".{t.microsecond // 10000:02d}"

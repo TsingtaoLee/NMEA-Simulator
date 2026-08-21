@@ -219,6 +219,199 @@ def api_formats():
     return jsonify(NMEA_FORMATS)
 
 
+# ---- AIS Target Management ----
+
+@app.route("/api/targets/ais")
+def api_list_ais_targets():
+    return jsonify(db.load_ais_targets())
+
+
+@app.route("/api/targets/ais", methods=["POST"])
+def api_create_ais_target():
+    data = request.json or {}
+    required = ["mmsi", "ship_name", "callsign", "imo_number", "ship_type",
+                "destination", "draught", "speed", "heading", "bearing", "distance"]
+    errors = []
+    for f in required:
+        if f not in data or data[f] is None:
+            errors.append(f"缺少字段: {f}")
+    if errors:
+        return jsonify({"ok": False, "errors": errors}), 400
+    try:
+        data["mmsi"] = int(data["mmsi"])
+        data["imo_number"] = int(data["imo_number"])
+        data["ship_type"] = int(data["ship_type"])
+        data["draught"] = float(data["draught"])
+        data["speed"] = float(data["speed"])
+        data["heading"] = float(data["heading"]) % 360
+        data["bearing"] = float(data["bearing"]) % 360
+        data["distance"] = float(data["distance"])
+        data["msg_types"] = data.get("msg_types", "1")
+        data["fragment_count"] = int(data.get("fragment_count", 1))
+    except (ValueError, TypeError) as e:
+        return jsonify({"ok": False, "errors": [f"数据类型错误: {e}"]}), 400
+    db.save_ais_target(data)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/targets/ais/<int:target_id>", methods=["PUT"])
+def api_update_ais_target(target_id):
+    data = request.json or {}
+    try:
+        data["mmsi"] = int(data["mmsi"])
+        data["imo_number"] = int(data["imo_number"])
+        data["ship_type"] = int(data["ship_type"])
+        data["draught"] = float(data["draught"])
+        data["speed"] = float(data["speed"])
+        data["heading"] = float(data["heading"]) % 360
+        data["bearing"] = float(data["bearing"]) % 360
+        data["distance"] = float(data["distance"])
+        data["msg_types"] = data.get("msg_types", "1")
+        data["fragment_count"] = int(data.get("fragment_count", 1))
+    except (ValueError, TypeError, KeyError) as e:
+        return jsonify({"ok": False, "errors": [f"数据类型错误: {e}"]}), 400
+    db.update_ais_target(target_id, data)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/targets/ais/<int:target_id>", methods=["DELETE"])
+def api_delete_ais_target(target_id):
+    db.delete_ais_target(target_id)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True})
+
+
+# ---- ATON Target Management ----
+
+@app.route("/api/targets/aton")
+def api_list_aton_targets():
+    return jsonify(db.load_aton_targets())
+
+
+@app.route("/api/targets/aton", methods=["POST"])
+def api_create_aton_target():
+    data = request.json or {}
+    required = ["mmsi", "name", "aton_type", "bearing", "distance"]
+    errors = []
+    for f in required:
+        if f not in data or data[f] is None:
+            errors.append(f"缺少字段: {f}")
+    if errors:
+        return jsonify({"ok": False, "errors": errors}), 400
+    try:
+        data["mmsi"] = int(data["mmsi"])
+        data["aton_type"] = int(data["aton_type"])
+        data["bearing"] = float(data["bearing"]) % 360
+        data["distance"] = float(data["distance"])
+        data["msg_types"] = data.get("msg_types", "21")
+        data["fragment_count"] = int(data.get("fragment_count", 1))
+    except (ValueError, TypeError) as e:
+        return jsonify({"ok": False, "errors": [f"数据类型错误: {e}"]}), 400
+    db.save_aton_target(data)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/targets/aton/<int:target_id>", methods=["PUT"])
+def api_update_aton_target(target_id):
+    data = request.json or {}
+    try:
+        data["mmsi"] = int(data["mmsi"])
+        data["aton_type"] = int(data["aton_type"])
+        data["bearing"] = float(data["bearing"]) % 360
+        data["distance"] = float(data["distance"])
+        data["msg_types"] = data.get("msg_types", "21")
+        data["fragment_count"] = int(data.get("fragment_count", 1))
+    except (ValueError, TypeError, KeyError) as e:
+        return jsonify({"ok": False, "errors": [f"数据类型错误: {e}"]}), 400
+    db.update_aton_target(target_id, data)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/targets/aton/<int:target_id>", methods=["DELETE"])
+def api_delete_aton_target(target_id):
+    db.delete_aton_target(target_id)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True})
+
+
+# ---- Special Target Management ----
+
+SPECIAL_TARGET_TYPES = ["weather", "aircraft", "basestation", "sart", "route"]
+
+
+@app.route("/api/targets/special")
+def api_list_special_targets():
+    return jsonify(db.load_special_targets())
+
+
+@app.route("/api/targets/special", methods=["POST"])
+def api_create_special_target():
+    data = request.json or {}
+    required = ["target_type", "mmsi", "name", "bearing", "distance"]
+    errors = []
+    for f in required:
+        if f not in data or data[f] is None:
+            errors.append(f"缺少字段: {f}")
+    if data.get("target_type") and data["target_type"] not in SPECIAL_TARGET_TYPES:
+        errors.append(f"目标类型必须是: {', '.join(SPECIAL_TARGET_TYPES)}")
+    if errors:
+        return jsonify({"ok": False, "errors": errors}), 400
+    try:
+        data["mmsi"] = int(data["mmsi"])
+        data["bearing"] = float(data["bearing"]) % 360
+        data["distance"] = float(data["distance"])
+        data["speed"] = float(data.get("speed", 0))
+        data["heading"] = float(data.get("heading", 0)) % 360
+        data["altitude"] = float(data.get("altitude", 0))
+        data["wind_speed"] = float(data.get("wind_speed", 0))
+        data["wind_direction"] = float(data.get("wind_direction", 0)) % 360
+        data["pressure"] = float(data.get("pressure", 0))
+        data["temperature"] = float(data.get("temperature", 0))
+        data["humidity"] = float(data.get("humidity", 0))
+        data["visibility"] = float(data.get("visibility", 0))
+        data["fragment_count"] = int(data.get("fragment_count", 1))
+    except (ValueError, TypeError) as e:
+        return jsonify({"ok": False, "errors": [f"数据类型错误: {e}"]}), 400
+    db.save_special_target(data)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/targets/special/<int:target_id>", methods=["PUT"])
+def api_update_special_target(target_id):
+    data = request.json or {}
+    try:
+        data["mmsi"] = int(data["mmsi"])
+        data["bearing"] = float(data["bearing"]) % 360
+        data["distance"] = float(data["distance"])
+        data["speed"] = float(data.get("speed", 0))
+        data["heading"] = float(data.get("heading", 0)) % 360
+        data["altitude"] = float(data.get("altitude", 0))
+        data["wind_speed"] = float(data.get("wind_speed", 0))
+        data["wind_direction"] = float(data.get("wind_direction", 0)) % 360
+        data["pressure"] = float(data.get("pressure", 0))
+        data["temperature"] = float(data.get("temperature", 0))
+        data["humidity"] = float(data.get("humidity", 0))
+        data["visibility"] = float(data.get("visibility", 0))
+        data["fragment_count"] = int(data.get("fragment_count", 1))
+    except (ValueError, TypeError, KeyError) as e:
+        return jsonify({"ok": False, "errors": [f"数据类型错误: {e}"]}), 400
+    db.update_special_target(target_id, data)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/targets/special/<int:target_id>", methods=["DELETE"])
+def api_delete_special_target(target_id):
+    db.delete_special_target(target_id)
+    ship_sim.refresh_targets()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/local-ips")
 def api_local_ips():
     return jsonify(get_local_ips())

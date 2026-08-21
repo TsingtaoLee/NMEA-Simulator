@@ -4,6 +4,8 @@ import threading
 import time
 from datetime import datetime, timezone, timedelta
 
+import db
+
 DEFAULT_CONFIG = {
     "start_latitude": 31.2304,
     "start_longitude": 121.4737,
@@ -26,11 +28,22 @@ DEFAULT_CONFIG = {
     "hdop": 0.8,
     "altitude": 34.7,
     "water_speed": 0.0,
-    "ais_fragment_enabled": 0,
-    "ais_fragment_mode": 0,
-    "ais_fragment_type": 5,
-    "ais_fragment_count": 0,
     "aton_target_count": 2,
+    "ship_name": "SIM VESSEL",
+    "callsign": "SIMCALL",
+    "imo_number": 1234567,
+    "ship_type_ais": 36,
+    "destination": "SHANGHAI",
+    "draught": 5.0,
+    "vdo_msg_types": "1",
+    "vdo_fragment_count": 1,
+    "ais_pos_dev": 10.0,
+    "ais_speed_dev": 0.1,
+    "ais_heading_dev": 1.0,
+    "radar_pos_dev": 30.0,
+    "radar_bearing_dev": 1.5,
+    "radar_speed_dev": 0.3,
+    "radar_heading_dev": 2.0,
 }
 
 
@@ -51,6 +64,7 @@ class ShipState:
         self._extra = {}
         self.ais_targets = []
         self.aton_targets = []
+        self.special_targets = []
         self.apply_config(config or {})
 
     def apply_config(self, cfg, reset_position=False):
@@ -73,54 +87,119 @@ class ShipState:
         self.hdop = self._config.get("hdop", 0.8)
         self.altitude = self._config.get("altitude", 34.7)
         self.water_speed = self._config.get("water_speed", 0.0) or self._config["speed"]
-        self.ais_fragment_enabled = self._config.get("ais_fragment_enabled", 0)
-        self.ais_fragment_mode = self._config.get("ais_fragment_mode", 0)
-        self.ais_fragment_type = self._config.get("ais_fragment_type", 5)
-        self.ais_fragment_count = self._config.get("ais_fragment_count", 0)
         self.aton_target_count = self._config.get("aton_target_count", 2)
-        self._regen_targets()
+        self.ship_name = self._config.get("ship_name", "SIM VESSEL")
+        self.callsign = self._config.get("callsign", "SIMCALL")
+        self.imo_number = self._config.get("imo_number", 1234567)
+        self.ship_type_ais = self._config.get("ship_type_ais", 36)
+        self.destination = self._config.get("destination", "SHANGHAI")
+        self.draught = self._config.get("draught", 5.0)
+        self.vdo_msg_types = self._config.get("vdo_msg_types", "1")
+        self.vdo_fragment_count = self._config.get("vdo_fragment_count", 1)
+        self.ais_pos_dev = self._config.get("ais_pos_dev", 10.0)
+        self.ais_speed_dev = self._config.get("ais_speed_dev", 0.1)
+        self.ais_heading_dev = self._config.get("ais_heading_dev", 1.0)
+        self.radar_pos_dev = self._config.get("radar_pos_dev", 30.0)
+        self.radar_bearing_dev = self._config.get("radar_bearing_dev", 1.5)
+        self.radar_speed_dev = self._config.get("radar_speed_dev", 0.3)
+        self.radar_heading_dev = self._config.get("radar_heading_dev", 2.0)
+        self._load_targets()
 
     def get(self, key, default=None):
         if hasattr(self, key):
             return getattr(self, key)
         return self._extra.get(key, default)
 
-    def _regen_targets(self):
-        count = self._config.get("ais_target_count", 5)
+    def _load_targets(self):
+        start_lat = self._config.get("start_latitude", DEFAULT_CONFIG["start_latitude"])
+        start_lon = self._config.get("start_longitude", DEFAULT_CONFIG["start_longitude"])
+        cos_lat = max(math.cos(math.radians(start_lat)), 0.01)
+
+        ais_db = db.load_ais_targets()
         self.ais_targets = []
-        for i in range(count):
-            ang = random.uniform(0, 360)
-            dist_nm = random.uniform(0.5, 8)
-            dlat = dist_nm * math.cos(math.radians(ang)) / 60
-            dlon = dist_nm * math.sin(math.radians(ang)) / (60 * math.cos(math.radians(self.latitude)))
-            tgt_lat = self.latitude + dlat
-            tgt_lon = self.longitude + dlon
-            mmsi = random.randint(201000000, 775999999)
-            base_heading = self.heading + random.uniform(-60, 60)
-            tgt_heading = base_heading % 360
-            tgt_speed = max(1.0, self.speed + random.uniform(-5, 5))
+        for t in ais_db:
+            br = math.radians(t["bearing"])
+            dist_nm = t["distance"]
+            dlat = dist_nm * math.cos(br) / 60
+            dlon = dist_nm * math.sin(br) / (60 * cos_lat)
+            msg_types_str = t.get("msg_types", "1")
+            msg_types_list = [int(x) for x in msg_types_str.split(",") if x.strip()]
+            if not msg_types_list:
+                msg_types_list = [1]
             self.ais_targets.append({
-                "mmsi": mmsi,
-                "latitude": tgt_lat,
-                "longitude": tgt_lon,
-                "heading": tgt_heading,
-                "cog": (tgt_heading + random.uniform(-5, 5)) % 360,
-                "speed": tgt_speed,
+                "id": t["id"],
+                "mmsi": t["mmsi"],
+                "ship_name": t["ship_name"],
+                "callsign": t["callsign"],
+                "imo_number": t["imo_number"],
+                "ship_type": t["ship_type"],
+                "destination": t["destination"],
+                "draught": t["draught"],
+                "speed": t["speed"],
+                "heading": t["heading"],
+                "bearing": t["bearing"],
+                "distance": t["distance"],
+                "msg_types": msg_types_list,
+                "fragment_count": t.get("fragment_count", 1),
+                "latitude": start_lat + dlat,
+                "longitude": start_lon + dlon,
+                "cog": t["heading"],
             })
-        aton_count = self._config.get("aton_target_count", 2)
+
+        aton_db = db.load_aton_targets()
         self.aton_targets = []
-        for i in range(aton_count):
-            ang = random.uniform(0, 360)
-            dist_nm = random.uniform(0.5, 5.0)
-            dlat = dist_nm * math.cos(math.radians(ang)) / 60
-            dlon = dist_nm * math.sin(math.radians(ang)) / (60 * math.cos(math.radians(self.latitude)))
+        for t in aton_db:
+            br = math.radians(t["bearing"])
+            dist_nm = t["distance"]
+            dlat = dist_nm * math.cos(br) / 60
+            dlon = dist_nm * math.sin(br) / (60 * cos_lat)
+            msg_types_str = t.get("msg_types", "21")
+            msg_types_list = [int(x) for x in msg_types_str.split(",") if x.strip()]
+            if not msg_types_list:
+                msg_types_list = [21]
             self.aton_targets.append({
-                "mmsi": 990000000 + random.randint(10000, 99999),
-                "name": f"ATON-{i+1:02d}",
-                "latitude": self.latitude + dlat,
-                "longitude": self.longitude + dlon,
-                "aton_type": random.randint(1, 7),
+                "id": t["id"],
+                "mmsi": t["mmsi"],
+                "name": t["name"],
+                "aton_type": t["aton_type"],
+                "bearing": t["bearing"],
+                "distance": t["distance"],
+                "msg_types": msg_types_list,
+                "fragment_count": t.get("fragment_count", 1),
+                "latitude": start_lat + dlat,
+                "longitude": start_lon + dlon,
             })
+
+        special_db = db.load_special_targets()
+        self.special_targets = []
+        for t in special_db:
+            br = math.radians(t["bearing"])
+            dist_nm = t["distance"]
+            dlat = dist_nm * math.cos(br) / 60
+            dlon = dist_nm * math.sin(br) / (60 * cos_lat)
+            self.special_targets.append({
+                "id": t["id"],
+                "target_type": t["target_type"],
+                "mmsi": t["mmsi"],
+                "name": t["name"],
+                "bearing": t["bearing"],
+                "distance": t["distance"],
+                "speed": t["speed"],
+                "heading": t["heading"],
+                "altitude": t["altitude"],
+                "wind_speed": t["wind_speed"],
+                "wind_direction": t["wind_direction"],
+                "pressure": t["pressure"],
+                "temperature": t["temperature"],
+                "humidity": t["humidity"],
+                "visibility": t["visibility"],
+                "fragment_count": t["fragment_count"],
+                "latitude": start_lat + dlat,
+                "longitude": start_lon + dlon,
+            })
+
+    def refresh_targets(self):
+        self._load_targets()
 
     def update(self, dt):
         self.utc_time = datetime.now(timezone.utc)
@@ -153,6 +232,13 @@ class ShipState:
             lon_factor = 1.0 / max(math.cos(math.radians(tgt["latitude"])), 0.01)
             tgt["longitude"] += dist_deg * math.sin(rad) * lon_factor
             tgt["cog"] = tgt["heading"] + random.uniform(-2, 2)
+        for spec in self.special_targets:
+            if spec.get("speed", 0) > 0:
+                dist_deg = spec["speed"] * dt_h / 60.0
+                rad = math.radians(spec["heading"])
+                spec["latitude"] += dist_deg * math.cos(rad)
+                lon_factor = 1.0 / max(math.cos(math.radians(spec["latitude"])), 0.01)
+                spec["longitude"] += dist_deg * math.sin(rad) * lon_factor
 
     def _apply_variations(self):
         cfg = self._config
@@ -184,6 +270,7 @@ class ShipState:
             "pressure": round(self.pressure, 1),
             "ais_target_count": len(self.ais_targets),
             "aton_target_count": len(self.aton_targets),
+            "special_target_count": len(self.special_targets),
             "mmsi": self.mmsi,
             "config": self._config,
         }
@@ -219,6 +306,10 @@ class ShipSimulator:
     def update_config(self, config):
         with self._lock:
             self.state.apply_config(config)
+
+    def refresh_targets(self):
+        with self._lock:
+            self.state.refresh_targets()
 
     def get_state(self):
         with self._lock:
